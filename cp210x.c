@@ -31,8 +31,8 @@
  */
 static int cp210x_open(struct tty_struct *tty, struct usb_serial_port *);
 static void cp210x_close(struct usb_serial_port *);
-static int cp210x_ioctl(struct tty_struct *tty, unsigned int cmd,
-	unsigned long arg);
+static int cp210x_ioctl(struct tty_struct *tty,
+	unsigned int cmd, unsigned long arg);
 static void cp210x_get_termios(struct tty_struct *, struct usb_serial_port *);
 static void cp210x_get_termios_port(struct usb_serial_port *port,
 	tcflag_t *cflagp, unsigned int *baudp);
@@ -40,6 +40,7 @@ static void cp210x_change_speed(struct tty_struct *, struct usb_serial_port *,
 							struct ktermios *);
 static void cp210x_set_termios(struct tty_struct *, struct usb_serial_port *,
 							struct ktermios*);
+static bool cp210x_tx_empty(struct usb_serial_port *port);
 static int cp210x_tiocmget(struct tty_struct *);
 static int cp210x_tiocmset(struct tty_struct *, unsigned int, unsigned int);
 static int cp210x_tiocmset_port(struct usb_serial_port *port,
@@ -59,6 +60,7 @@ static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(0x0846, 0x1100) }, /* NetGear Managed Switch M4100 series, M5300 series, M7100 series */
 	{ USB_DEVICE(0x08e6, 0x5501) }, /* Gemalto Prox-PU/CU contactless smartcard reader */
 	{ USB_DEVICE(0x08FD, 0x000A) }, /* Digianswer A/S , ZigBee/802.15.4 MAC Device */
+	{ USB_DEVICE(0x0908, 0x01FF) }, /* Siemens RUGGEDCOM USB Serial Console */
 	{ USB_DEVICE(0x0BED, 0x1100) }, /* MEI (TM) Cashflow-SC Bill/Voucher Acceptor */
 	{ USB_DEVICE(0x0BED, 0x1101) }, /* MEI series 2000 Combo Acceptor */
 	{ USB_DEVICE(0x0FCF, 0x1003) }, /* Dynastream ANT development board */
@@ -93,6 +95,9 @@ static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(0x10C4, 0x8156) }, /* B&G H3000 link cable */
 	{ USB_DEVICE(0x10C4, 0x815E) }, /* Helicomm IP-Link 1220-DVM */
 	{ USB_DEVICE(0x10C4, 0x815F) }, /* Timewave HamLinkUSB */
+	{ USB_DEVICE(0x10C4, 0x817C) }, /* CESINEL MEDCAL N Power Quality Monitor */
+	{ USB_DEVICE(0x10C4, 0x817D) }, /* CESINEL MEDCAL NT Power Quality Monitor */
+	{ USB_DEVICE(0x10C4, 0x817E) }, /* CESINEL MEDCAL S Power Quality Monitor */
 	{ USB_DEVICE(0x10C4, 0x818B) }, /* AVIT Research USB to TTL */
 	{ USB_DEVICE(0x10C4, 0x819F) }, /* MJS USB Toslink Switcher */
 	{ USB_DEVICE(0x10C4, 0x81A6) }, /* ThinkOptics WavIt */
@@ -100,6 +105,7 @@ static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(0x10C4, 0x81AC) }, /* MSD Dash Hawk */
 	{ USB_DEVICE(0x10C4, 0x81AD) }, /* INSYS USB Modem */
 	{ USB_DEVICE(0x10C4, 0x81C8) }, /* Lipowsky Industrie Elektronik GmbH, Baby-JTAG */
+	{ USB_DEVICE(0x10C4, 0x81D7) }, /* IAI Corp. RCB-CV-USB USB to RS485 Adaptor */
 	{ USB_DEVICE(0x10C4, 0x81E2) }, /* Lipowsky Industrie Elektronik GmbH, Baby-LIN */
 	{ USB_DEVICE(0x10C4, 0x81E7) }, /* Aerocomm Radio */
 	{ USB_DEVICE(0x10C4, 0x81E8) }, /* Zephyr Bioharness */
@@ -107,7 +113,12 @@ static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(0x10C4, 0x8218) }, /* Lipowsky Industrie Elektronik GmbH, HARP-1 */
 	{ USB_DEVICE(0x10C4, 0x822B) }, /* Modem EDGE(GSM) Comander 2 */
 	{ USB_DEVICE(0x10C4, 0x826B) }, /* Cygnal Integrated Products, Inc., Fasttrax GPS demonstration module */
+	{ USB_DEVICE(0x10C4, 0x8281) }, /* Nanotec Plug & Drive */
 	{ USB_DEVICE(0x10C4, 0x8293) }, /* Telegesis ETRX2USB */
+	{ USB_DEVICE(0x10C4, 0x82EF) }, /* CESINEL FALCO 6105 AC Power Supply */
+	{ USB_DEVICE(0x10C4, 0x82F1) }, /* CESINEL MEDCAL EFD Earth Fault Detector */
+	{ USB_DEVICE(0x10C4, 0x82F2) }, /* CESINEL MEDCAL ST Network Analyzer */
+	{ USB_DEVICE(0x10C4, 0x82F4) }, /* Starizona MicroTouch */
 	{ USB_DEVICE(0x10C4, 0x82F9) }, /* Procyon AVS */
 	{ USB_DEVICE(0x10C4, 0x8341) }, /* Siemens MC35PU GPRS Modem */
 	{ USB_DEVICE(0x10C4, 0x8382) }, /* Cygnal Integrated Products, Inc. */
@@ -116,27 +127,51 @@ static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(0x10C4, 0x8411) }, /* Kyocera GPS Module */
 	{ USB_DEVICE(0x10C4, 0x8418) }, /* IRZ Automation Teleport SG-10 GSM/GPRS Modem */
 	{ USB_DEVICE(0x10C4, 0x846E) }, /* BEI USB Sensor Interface (VCP) */
+	{ USB_DEVICE(0x10C4, 0x8470) }, /* Juniper Networks BX Series System Console */
 	{ USB_DEVICE(0x10C4, 0x8477) }, /* Balluff RFID */
+	{ USB_DEVICE(0x10C4, 0x84B6) }, /* Starizona Hyperion */
+	{ USB_DEVICE(0x10C4, 0x851E) }, /* CESINEL MEDCAL PT Network Analyzer */
+	{ USB_DEVICE(0x10C4, 0x85A7) }, /* LifeScan OneTouch Verio IQ */
+	{ USB_DEVICE(0x10C4, 0x85B8) }, /* CESINEL ReCon T Energy Logger */
 	{ USB_DEVICE(0x10C4, 0x85EA) }, /* AC-Services IBUS-IF */
 	{ USB_DEVICE(0x10C4, 0x85EB) }, /* AC-Services CIS-IBUS */
 	{ USB_DEVICE(0x10C4, 0x85F8) }, /* Virtenio Preon32 */
 	{ USB_DEVICE(0x10C4, 0x8664) }, /* AC-Services CAN-IF */
 	{ USB_DEVICE(0x10C4, 0x8665) }, /* AC-Services OBD-IF */
+	{ USB_DEVICE(0x10C4, 0x8856) },	/* CEL EM357 ZigBee USB Stick - LR */
+	{ USB_DEVICE(0x10C4, 0x8857) },	/* CEL EM357 ZigBee USB Stick */
 	{ USB_DEVICE(0x10C4, 0x88A4) }, /* MMB Networks ZigBee USB Device */
 	{ USB_DEVICE(0x10C4, 0x88A5) }, /* Planet Innovation Ingeni ZigBee USB Device */
+	{ USB_DEVICE(0x10C4, 0x88FB) }, /* CESINEL MEDCAL STII Network Analyzer */
+	{ USB_DEVICE(0x10C4, 0x8938) }, /* CESINEL MEDCAL S II Network Analyzer */
+	{ USB_DEVICE(0x10C4, 0x8946) }, /* Ketra N1 Wireless Interface */
+	{ USB_DEVICE(0x10C4, 0x8962) }, /* Brim Brothers charging dock */
+	{ USB_DEVICE(0x10C4, 0x8977) },	/* CEL MeshWorks DevKit Device */
+	{ USB_DEVICE(0x10C4, 0x8998) }, /* KCF Technologies PRN */
+	{ USB_DEVICE(0x10C4, 0x89A4) }, /* CESINEL FTBC Flexible Thyristor Bridge Controller */
+	{ USB_DEVICE(0x10C4, 0x89FB) }, /* Qivicon ZigBee USB Radio Stick */
+	{ USB_DEVICE(0x10C4, 0x8A2A) }, /* HubZ dual ZigBee and Z-Wave dongle */
+	{ USB_DEVICE(0x10C4, 0x8A5E) }, /* CEL EM3588 ZigBee USB Stick Long Range */
+	{ USB_DEVICE(0x10C4, 0x8B34) }, /* Qivicon ZigBee USB Radio Stick */
 	{ USB_DEVICE(0x10C4, 0xEA60) }, /* Silicon Labs factory default */
 	{ USB_DEVICE(0x10C4, 0xEA61) }, /* Silicon Labs factory default */
+	{ USB_DEVICE(0x10C4, 0xEA63) }, /* Silicon Labs Windows Update (CP2101-4/CP2102N) */
 	{ USB_DEVICE(0x10C4, 0xEA70) }, /* Silicon Labs factory default */
 	{ USB_DEVICE(0x10C4, 0xEA80) }, /* Silicon Labs factory default */
 	{ USB_DEVICE(0x10C4, 0xEA71) }, /* Infinity GPS-MIC-1 Radio Monophone */
+	{ USB_DEVICE(0x10C4, 0xEA7A) }, /* Silicon Labs Windows Update (CP2105) */
+	{ USB_DEVICE(0x10C4, 0xEA7B) }, /* Silicon Labs Windows Update (CP2108) */
 	{ USB_DEVICE(0x10C4, 0xF001) }, /* Elan Digital Systems USBscope50 */
 	{ USB_DEVICE(0x10C4, 0xF002) }, /* Elan Digital Systems USBwave12 */
 	{ USB_DEVICE(0x10C4, 0xF003) }, /* Elan Digital Systems USBpulse100 */
 	{ USB_DEVICE(0x10C4, 0xF004) }, /* Elan Digital Systems USBcount50 */
 	{ USB_DEVICE(0x10C5, 0xEA61) }, /* Silicon Labs MobiData GPRS USB Modem */
 	{ USB_DEVICE(0x10CE, 0xEA6A) }, /* Silicon Labs MobiData GPRS USB Modem 100EU */
+	{ USB_DEVICE(0x12B8, 0xEC60) }, /* Link G4 ECU */
+	{ USB_DEVICE(0x12B8, 0xEC62) }, /* Link G4+ ECU */
 	{ USB_DEVICE(0x13AD, 0x9999) }, /* Baltech card reader */
 	{ USB_DEVICE(0x1555, 0x0004) }, /* Owen AC4 USB-RS485 Converter */
+	{ USB_DEVICE(0x155A, 0x1006) },	/* ELDAT Easywave RX09 */
 	{ USB_DEVICE(0x166A, 0x0201) }, /* Clipsal 5500PACA C-Bus Pascal Automation Controller */
 	{ USB_DEVICE(0x166A, 0x0301) }, /* Clipsal 5800PC C-Bus Wireless PC Interface */
 	{ USB_DEVICE(0x166A, 0x0303) }, /* Clipsal 5500PCU C-Bus USB interface */
@@ -144,6 +179,8 @@ static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(0x166A, 0x0305) }, /* Clipsal C-5000CT2 C-Bus Spectrum Colour Touchscreen */
 	{ USB_DEVICE(0x166A, 0x0401) }, /* Clipsal L51xx C-Bus Architectural Dimmer */
 	{ USB_DEVICE(0x166A, 0x0101) }, /* Clipsal 5560884 C-Bus Multi-room Audio Matrix Switcher */
+	{ USB_DEVICE(0x16C0, 0x09B0) }, /* Lunatico Seletek */
+	{ USB_DEVICE(0x16C0, 0x09B1) }, /* Lunatico Seletek */
 	{ USB_DEVICE(0x16D6, 0x0001) }, /* Jablotron serial interface */
 	{ USB_DEVICE(0x16DC, 0x0010) }, /* W-IE-NE-R Plein & Baus GmbH PL512 Power Supply */
 	{ USB_DEVICE(0x16DC, 0x0011) }, /* W-IE-NE-R Plein & Baus GmbH RCM Remote Control for MARATON Power Supply */
@@ -154,8 +191,20 @@ static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(0x17F4, 0xAAAA) }, /* Wavesense Jazz blood glucose meter */
 	{ USB_DEVICE(0x1843, 0x0200) }, /* Vaisala USB Instrument Cable */
 	{ USB_DEVICE(0x18EF, 0xE00F) }, /* ELV USB-I2C-Interface */
+	{ USB_DEVICE(0x18EF, 0xE025) }, /* ELV Marble Sound Board 1 */
+	{ USB_DEVICE(0x18EF, 0xE030) }, /* ELV ALC 8xxx Battery Charger */
+	{ USB_DEVICE(0x18EF, 0xE032) }, /* ELV TFD500 Data Logger */
+	{ USB_DEVICE(0x1901, 0x0190) }, /* GE B850 CP2105 Recorder interface */
+	{ USB_DEVICE(0x1901, 0x0193) }, /* GE B650 CP2104 PMC interface */
+	{ USB_DEVICE(0x1901, 0x0194) },	/* GE Healthcare Remote Alarm Box */
+	{ USB_DEVICE(0x1901, 0x0195) },	/* GE B850/B650/B450 CP2104 DP UART interface */
+	{ USB_DEVICE(0x1901, 0x0196) },	/* GE B850 CP2105 DP UART interface */
+	{ USB_DEVICE(0x19CF, 0x3000) }, /* Parrot NMEA GPS Flight Recorder */
 	{ USB_DEVICE(0x1ADB, 0x0001) }, /* Schweitzer Engineering C662 Cable */
+	{ USB_DEVICE(0x1B1C, 0x1C00) }, /* Corsair USB Dongle */
+	{ USB_DEVICE(0x1BA4, 0x0002) },	/* Silicon Labs 358x factory default */
 	{ USB_DEVICE(0x1BE3, 0x07A6) }, /* WAGO 750-923 USB Service Cable */
+	{ USB_DEVICE(0x1D6F, 0x0010) }, /* Seluxit ApS RF Dongle */
 	{ USB_DEVICE(0x1E29, 0x0102) }, /* Festo CPX-USB */
 	{ USB_DEVICE(0x1E29, 0x0501) }, /* Festo CMSP */
 	{ USB_DEVICE(0x1FB9, 0x0100) }, /* Lake Shore Model 121 Current Source */
@@ -177,9 +226,11 @@ static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(0x1FB9, 0x0602) }, /* Lake Shore Model 648 Magnet Power Supply */
 	{ USB_DEVICE(0x1FB9, 0x0700) }, /* Lake Shore Model 737 VSM Controller */
 	{ USB_DEVICE(0x1FB9, 0x0701) }, /* Lake Shore Model 776 Hall Matrix */
+	{ USB_DEVICE(0x2626, 0xEA60) }, /* Aruba Networks 7xxx USB Serial Console */
 	{ USB_DEVICE(0x3195, 0xF190) }, /* Link Instruments MSO-19 */
 	{ USB_DEVICE(0x3195, 0xF280) }, /* Link Instruments MSO-28 */
 	{ USB_DEVICE(0x3195, 0xF281) }, /* Link Instruments MSO-28 */
+	{ USB_DEVICE(0x3923, 0x7A0B) }, /* National Instruments USB Serial Console */
 	{ USB_DEVICE(0x413C, 0x9500) }, /* DW700 GPS USB interface */
 	{ } /* Terminating Entry */
 };
@@ -187,8 +238,9 @@ static const struct usb_device_id id_table[] = {
 MODULE_DEVICE_TABLE(usb, id_table);
 
 struct cp210x_serial_private {
-	__u8			bInterfaceNumber;
 	__u8			bPartNumber;
+	__u8			bInterfaceNumber;
+	bool			has_swapped_line_ctl;
 
 	int baud_bas;
 	int custom_divisor;
@@ -213,6 +265,7 @@ static struct usb_serial_driver cp210x_device = {
 	.ioctl			= cp210x_ioctl,
 	.break_ctl		= cp210x_break_ctl,
 	.set_termios		= cp210x_set_termios,
+	.tx_empty		= cp210x_tx_empty,
 	.tiocmget		= cp210x_tiocmget,
 	.tiocmset		= cp210x_tiocmset,
 	.tiocmiwait		= usb_serial_generic_tiocmiwait,
@@ -324,6 +377,7 @@ static struct usb_serial_driver * const serial_drivers[] = {
 #define CP210X_STATUS_B0_MASK (CONTROL_CTS | CONTROL_DSR | CONTROL_RING | CONTROL_DCD)
 #define CP210X_ESCAPE		0x1e
 #define CP210X_DCD_CHANGE_BIT 0x08
+
 /*
  * cp210x_get_config
  * Reads from the CP210x configuration registers
@@ -343,16 +397,14 @@ static int cp210x_get_config(struct usb_serial_port *port, u8 request,
 	length = (((size - 1) | 3) + 1) / 4;
 
 	buf = kcalloc(length, sizeof(__le32), GFP_KERNEL);
-	if (!buf) {
-		dev_err(&port->dev, "%s - out of memory.\n", __func__);
+	if (!buf)
 		return -ENOMEM;
-	}
 
 	/* Issue the request, attempting to read 'size' bytes */
 	result = usb_control_msg(serial->dev, usb_rcvctrlpipe(serial->dev, 0),
-				request, REQTYPE_INTERFACE_TO_HOST, 0x0000,
-				spriv->bInterfaceNumber, buf, size,
-				USB_CTRL_GET_TIMEOUT);
+			request, REQTYPE_INTERFACE_TO_HOST, 0x0000,
+			spriv->bInterfaceNumber, buf, size,
+			USB_CTRL_GET_TIMEOUT);
 
 	/* Convert data into an array of integers */
 	for (i = 0; i < length; i++)
@@ -386,20 +438,16 @@ static int cp210x_set_config(struct usb_serial_port *port, u8 request,
 	__le32 *buf = NULL;
 	int result, i, length = 0;
 
-	if (size) {
-		/* Number of integers required to contain the array */
-		length = (((size - 1) | 3) + 1) / 4;
+	/* Number of integers required to contain the array */
+	length = (((size - 1) | 3) + 1) / 4;
 
-		buf = kmalloc(length * sizeof(__le32), GFP_KERNEL);
-		if (!buf) {
-			dev_err(&port->dev, "%s - out of memory.\n", __func__);
-			return -ENOMEM;
-		}
+	buf = kmalloc(length * sizeof(__le32), GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
 
-		/* Array of integers into bytes */
-		for (i = 0; i < length; i++)
-			buf[i] = cpu_to_le32(data[i]);
-	}
+	/* Array of integers into bytes */
+	for (i = 0; i < length; i++)
+		buf[i] = cpu_to_le32(data[i]);
 
 	if (size > 2) {
 		result = usb_control_msg(serial->dev,
@@ -428,6 +476,17 @@ static int cp210x_set_config(struct usb_serial_port *port, u8 request,
 	}
 
 	return 0;
+}
+
+/*
+ * cp210x_set_config_single
+ * Convenience function for calling cp210x_set_config on single data values
+ * without requiring an integer pointer
+ */
+static inline int cp210x_set_config_single(struct usb_serial_port *port,
+		u8 request, unsigned int data)
+{
+	return cp210x_set_config(port, request, &data, 2);
 }
 
 /*
@@ -490,7 +549,7 @@ static int cp210x_open(struct tty_struct *tty, struct usb_serial_port *port)
 	if (tty)
 		cp210x_change_speed(tty, port, NULL);
 
-	result = cp210x_set_config(port, CP210X_EMBED_EVENTS, CP210X_ESCAPE);
+	result = cp210x_set_config(port, CP210X_EMBED_EVENTS, CP210X_ESCAPE, 0);
 	if (result) {
 		dev_err(&port->dev, "%s - Unable to embed events in UART", __func__);
 		return result;
@@ -526,17 +585,26 @@ static int cp210x_ioctl(struct tty_struct *tty,
 	unsigned int cmd, unsigned long arg)
 {
 	struct usb_serial_port *port = tty->driver_data;
-	struct cp210x_serial_private *port_priv = usb_get_serial_port_data(port);
+	struct cp210x_serial_private *spriv = usb_get_serial_port_data(port);
 	int result = 0;
 	unsigned long latch_buf = 0;
 
 	switch (cmd) {
 
 	case IOCTL_GPIOGET:
-		if ((port_priv->bPartNumber == CP2103_PARTNUM) ||
-			(port_priv->bPartNumber == CP2104_PARTNUM)) {
+		if ((spriv->bPartNumber == CP2103_PARTNUM) ||
+			(spriv->bPartNumber == CP2104_PARTNUM)) {
 			result = cp210x_get_config(port,
-					REQTYPE_DEVICE_TO_HOST,
+					CP210X_READ_LATCH,
+					(unsigned int*)&latch_buf, 1);
+			if (result != 0)
+				return result;
+			if (copy_to_user((unsigned int*)arg, &latch_buf, 1))
+     				return -EFAULT;
+			return 0;
+		}
+		else if (spriv->bPartNumber == CP2105_PARTNUM) {
+			result = cp210x_get_config(port,
 					CP210X_VENDOR_SPECIFIC,
 					CP210X_READ_LATCH,
 					(unsigned int*)&latch_buf, 1);
@@ -546,24 +614,8 @@ static int cp210x_ioctl(struct tty_struct *tty,
      				return -EFAULT;
 			return 0;
 		}
-		else if (port_priv->bPartNumber == CP2105_PARTNUM) {
-			result = cp210x_get_config(port,
-					REQTYPE_INTERFACE_TO_HOST,
-					CP210X_VENDOR_SPECIFIC,
-					CP210X_READ_LATCH,
-					(unsigned int*)&latch_buf, 1);
-			if (result != 0)
-				return result;
-			if (copy_to_user((unsigned int*)arg, &latch_buf, 1))
-     				return -EFAULT;
-			return 0;
-		}
-		else if (port_priv->bPartNumber == CP2108_PARTNUM) {
-			result = cp210x_get_config(port,
-					REQTYPE_DEVICE_TO_HOST,
-					CP210X_VENDOR_SPECIFIC,
-					CP210X_READ_LATCH,
-					(unsigned int*)&latch_buf, 2);
+		else if (spriv->bPartNumber == CP2108_PARTNUM) {
+			result = cp210x_get_config(port, CP210X_READ_LATCH, (unsigned int*)&latch_buf, 2);
 			if (result != 0)
 				return result;
 			if (copy_to_user((unsigned int*)arg, &latch_buf, 2))
@@ -576,8 +628,8 @@ static int cp210x_ioctl(struct tty_struct *tty,
 		break;
 
 	case IOCTL_GPIOSET:
-		if ((port_priv->bPartNumber == CP2103_PARTNUM) ||
-			(port_priv->bPartNumber == CP2104_PARTNUM)) {
+		if ((spriv->bPartNumber == CP2103_PARTNUM) ||
+			(spriv->bPartNumber == CP2104_PARTNUM)) {
 			if (copy_from_user(&latch_buf, (unsigned int*)arg, 2))
      				return -EFAULT;
 			result = usb_control_msg(port->serial->dev,
@@ -591,7 +643,7 @@ static int cp210x_ioctl(struct tty_struct *tty,
 				return result;
 			return 0;
 		}
-		else if (port_priv->bPartNumber == CP2105_PARTNUM) {
+		else if (spriv->bPartNumber == CP2105_PARTNUM) {
 			if (copy_from_user(&latch_buf, (unsigned int*)arg, 2))
      				return -EFAULT;
 			return cp210x_set_config(port,
@@ -600,7 +652,7 @@ static int cp210x_ioctl(struct tty_struct *tty,
 					CP210X_WRITE_LATCH,
 					(unsigned int*)&latch_buf, 2);
 		}
-		else if (port_priv->bPartNumber == CP2108_PARTNUM) {
+		else if (spriv->bPartNumber == CP2108_PARTNUM) {
 			if (copy_from_user(&latch_buf, (unsigned int*)arg, 4))
      				return -EFAULT;
 			return cp210x_set_config(port, REQTYPE_HOST_TO_DEVICE,
@@ -620,6 +672,51 @@ static int cp210x_ioctl(struct tty_struct *tty,
 	}
 
 	return -ENOIOCTLCMD;
+}
+
+/*
+ * Read how many bytes are waiting in the TX queue.
+ */
+static int cp210x_get_tx_queue_byte_count(struct usb_serial_port *port,
+		u32 *count)
+{
+	struct usb_serial *serial = port->serial;
+	struct cp210x_port_private *port_priv = usb_get_serial_port_data(port);
+	struct cp210x_comm_status *sts;
+	int result;
+
+	sts = kmalloc(sizeof(*sts), GFP_KERNEL);
+	if (!sts)
+		return -ENOMEM;
+
+	result = usb_control_msg(serial->dev, usb_rcvctrlpipe(serial->dev, 0),
+			CP210X_GET_COMM_STATUS, REQTYPE_INTERFACE_TO_HOST,
+			0, port_priv->bInterfaceNumber, sts, sizeof(*sts),
+			USB_CTRL_GET_TIMEOUT);
+	if (result == sizeof(*sts)) {
+		*count = le32_to_cpu(sts->ulAmountInOutQueue);
+		result = 0;
+	} else {
+		dev_err(&port->dev, "failed to get comm status: %d\n", result);
+		if (result >= 0)
+			result = -EIO;
+	}
+
+	kfree(sts);
+
+	return result;
+}
+
+static bool cp210x_tx_empty(struct usb_serial_port *port)
+{
+	int err;
+	u32 count;
+
+	err = cp210x_get_tx_queue_byte_count(port, &count);
+	if (err)
+		return true;
+
+	return !count;
 }
 
 /*
@@ -654,8 +751,8 @@ static void cp210x_get_termios_port(struct usb_serial_port *port,
 	struct device *dev = &port->dev;
 	tcflag_t cflag;
 	unsigned int modem_ctl[4];
-	unsigned int baud;
-	unsigned int bits;
+	u32 baud;
+	u16 bits;
 
 	cp210x_get_config(port, CP210X_GET_BAUDRATE, &baud, 4);
 
@@ -821,7 +918,7 @@ static void cp210x_set_termios(struct tty_struct *tty,
 {
 	struct device *dev = &port->dev;
 	unsigned int cflag, old_cflag;
-	unsigned int bits;
+	u16 bits;
 	unsigned int modem_ctl[4];
 
 	cflag = tty->termios.c_cflag;
@@ -941,7 +1038,7 @@ static int cp210x_tiocmset(struct tty_struct *tty,
 static int cp210x_tiocmset_port(struct usb_serial_port *port,
 		unsigned int set, unsigned int clear)
 {
-	unsigned int control = 0;
+	u16 control = 0;
 
 	if (set & TIOCM_RTS) {
 		control |= CONTROL_RTS;
@@ -976,7 +1073,7 @@ static void cp210x_dtr_rts(struct usb_serial_port *p, int on)
 static int cp210x_tiocmget(struct tty_struct *tty)
 {
 	struct usb_serial_port *port = tty->driver_data;
-	unsigned int control;
+	u8 control;
 	int result;
 
 	result = cp210x_get_config(port, CP210X_GET_MDMSTS, &control, 1);
@@ -998,7 +1095,7 @@ static int cp210x_tiocmget(struct tty_struct *tty)
 static void cp210x_break_ctl(struct tty_struct *tty, int break_state)
 {
 	struct usb_serial_port *port = tty->driver_data;
-	unsigned int state;
+	u16 state;
 
 	if (break_state == 0)
 		state = BREAK_OFF;
@@ -1039,21 +1136,21 @@ static int cp210x_process_packet(struct usb_serial_port *port,
 
 	int i;
 	char status, flag, *ch;
-	if(len < 1){
+	if (len < 1){
 		// malformed packet
 		return 0;
 	}
 	status = packet[0] & CP210X_STATUS_B0_MASK;
-	if(status) {
+	if (status) {
 		char diff_status = status;
-		if(diff_status & CONTROL_CTS)
+		if (diff_status & CONTROL_CTS)
 			port->icount.cts += 1;
-		if(diff_status & CONTROL_DSR)
+		if (diff_status & CONTROL_DSR)
 			port->icount.dsr += 1;
-		if(diff_status & CONTROL_RING)
+		if (diff_status & CONTROL_RING)
 			port->icount.rng += 1;
-		if(diff_status & 0x0040){
-		
+		if (diff_status & 0x0040){
+		    // DNGN?
 		}
 		priv->prev_status = status;
 	}
@@ -1095,6 +1192,7 @@ static int cp210x_process_packet(struct usb_serial_port *port,
 	}
 	return len;
 }
+
 /*
  * cp210x_process_read_urb
  *
@@ -1107,8 +1205,8 @@ static void cp210x_process_read_urb(struct urb *urb) {
 	unsigned short max_packet_size = 128;
 
 	/* Detection of DCD Change */
-	if(data[0] == CP210X_ESCAPE) {
-		if(data[2] & CP210X_DCD_CHANGE_BIT) {	
+	if (data[0] == CP210X_ESCAPE) {
+		if (data[2] & CP210X_DCD_CHANGE_BIT) {	
 		struct tty_struct *tty;
 			port->icount.dcd += 1;
 			tty = tty_port_tty_get(&port->port);
