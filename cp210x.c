@@ -238,8 +238,8 @@ static const struct usb_device_id id_table[] = {
 MODULE_DEVICE_TABLE(usb, id_table);
 
 struct cp210x_port_private {
-    __u8 bPartNumber;
-    __u8 bInterfaceNumber;
+    u8 bPartNumber;
+    u8 bInterfaceNumber;
     bool has_swapped_line_ctl;
 
     int baud_bas;
