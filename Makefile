@@ -1,8 +1,8 @@
 obj-m :=  cp210x.o
-KERNEL_VERSION := $(shell uname -r)
+KERNEL_VERSION := 4.19.154
 
 all:
-	make -C /lib/modules/$(KERNEL_VERSION)/build M=$(PWD) modules
+	make -C ~/tmp/linux-$(KERNEL_VERSION) M=$(PWD) modules
 
 clean:
-	make -C /lib/modules/$(KERNEL_VERSION)/build M=$(PWD) clean
+	make -C ~/tmp/linux-$(KERNEL_VERSION) M=$(PWD) clean
