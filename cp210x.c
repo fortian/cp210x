@@ -237,6 +237,18 @@ static const struct usb_device_id id_table[] = {
 
 MODULE_DEVICE_TABLE(usb, id_table);
 
+/* CP210X_GET_COMM_STATUS returns these 0x13 bytes */
+#define CP210X_COMM_STATUS_SIZE 0x13
+struct cp210x_comm_status {
+   __le32   ulErrors;
+   __le32   ulHoldReasons;
+   __le32   ulAmountInInQueue;
+   __le32   ulAmountInOutQueue;
+   u8       bEofReceived;
+   u8       bWaitForImmediate;
+   u8       bReserved;
+};
+
 struct cp210x_port_private {
     __u8 bPartNumber;
     __u8 bInterfaceNumber;
@@ -767,7 +779,7 @@ static void cp210x_get_termios_port(struct usb_serial_port *port,
     tcflag_t cflag;
     unsigned int modem_ctl[4];
     u32 baud;
-    u16 bits;
+    unsigned int bits;
 
     cp210x_get_config(port, REQTYPE_INTERFACE_TO_HOST, CP210X_GET_BAUDRATE, 0,
         &baud, 4);
@@ -925,7 +937,7 @@ static void cp210x_set_termios(struct tty_struct *tty,
     struct usb_serial_port *port, struct ktermios *old_termios) {
     struct device *dev = &port->dev;
     unsigned int cflag, old_cflag;
-    u16 bits;
+    unsigned int bits;
     unsigned int modem_ctl[4];
 
     cflag = tty->termios.c_cflag;
@@ -1092,10 +1104,10 @@ static void cp210x_dtr_rts(struct usb_serial_port *p, int on) {
 
 static int cp210x_tiocmget(struct tty_struct *tty) {
     struct usb_serial_port *port = tty->driver_data;
-    u8 control;
+    unsigned int control;
     int result;
 
-    cp210x_get_config(port, REQTYPE_INTERFACE_TO_HOST,
+    result = cp210x_get_config(port, REQTYPE_INTERFACE_TO_HOST,
         CP210X_GET_MDMSTS, 0, &control, 1);
 
     if (result) {
@@ -1235,7 +1247,6 @@ static void cp210x_process_read_urb(struct urb *urb) {
     struct cp210x_port_private *priv = usb_get_serial_port_data(port);
     u8 *data = (u8 *)urb->transfer_buffer;
     int i, len, count = 0;
-    unsigned short max_packet_size = 128;
 
     /* Detection of DCD Change */
     if (data[0] == CP210X_ESCAPE) {
@@ -1252,8 +1263,8 @@ static void cp210x_process_read_urb(struct urb *urb) {
         }
         wake_up_interruptible(&port->port.delta_msr_wait);
     }
+    len = 256;
     for (i = 6; i < urb->actual_length; i += 256) {
-        len = 256;
         count += cp210x_process_packet(port, priv, &data[i], len);
     }
     if (count) {
