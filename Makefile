@@ -1,5 +1,5 @@
 obj-m :=  cp210x.o
-KERNEL_VERSION := $(shell uname -r)
+KERNEL_VERSION ?= $(shell uname -r)
 
 all:
 	make -C /lib/modules/$(KERNEL_VERSION)/build M=$(PWD) modules

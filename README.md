@@ -5,5 +5,6 @@ Positioning System Disciplined Oscillator (GPSDO).
 
 It is assumed that this driver works with all 4.x kernels.
 
-Note: this driver is in a prerelease form; the code here does not match the
-tested driver.
+This code has diverged significantly from upstream between
+2018 and now.  Confirmation of correct function with a given kernel will be
+appreciated!
