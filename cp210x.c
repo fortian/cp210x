@@ -1095,7 +1095,7 @@ static int cp210x_tiocmget(struct tty_struct *tty) {
     u8 control;
     int result;
 
-    cp210x_get_config(port, REQTYPE_INTERFACE_TO_HOST,
+    result = cp210x_get_config(port, REQTYPE_INTERFACE_TO_HOST,
         CP210X_GET_MDMSTS, 0, &control, 1);
 
     if (result) {
@@ -1234,8 +1234,7 @@ static void cp210x_process_read_urb(struct urb *urb) {
     struct usb_serial_port *port = urb->context;
     struct cp210x_port_private *priv = usb_get_serial_port_data(port);
     u8 *data = (u8 *)urb->transfer_buffer;
-    int i, len, count = 0;
-    unsigned short max_packet_size = 128;
+    int i, count = 0;
 
     /* Detection of DCD Change */
     if (data[0] == CP210X_ESCAPE) {
@@ -1253,8 +1252,7 @@ static void cp210x_process_read_urb(struct urb *urb) {
         wake_up_interruptible(&port->port.delta_msr_wait);
     }
     for (i = 6; i < urb->actual_length; i += 256) {
-        len = 256;
-        count += cp210x_process_packet(port, priv, &data[i], len);
+        count += cp210x_process_packet(port, priv, &data[i], 256);
     }
     if (count) {
         tty_flip_buffer_push(&port->port);
