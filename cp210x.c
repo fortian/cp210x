@@ -237,7 +237,6 @@ static const struct usb_device_id id_table[] = {
 
 MODULE_DEVICE_TABLE(usb, id_table);
 
-#ifndef CP210X_COMM_STATUS_SIZE
 /* CP210X_GET_COMM_STATUS returns these 0x13 bytes */
 #define CP210X_COMM_STATUS_SIZE 0x13
 struct cp210x_comm_status {
@@ -249,7 +248,6 @@ struct cp210x_comm_status {
    u8       bWaitForImmediate;
    u8       bReserved;
 };
-#endif
 
 struct cp210x_port_private {
     __u8 bPartNumber;
