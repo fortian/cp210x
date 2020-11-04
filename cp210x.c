@@ -1246,7 +1246,7 @@ static void cp210x_process_read_urb(struct urb *urb) {
     struct usb_serial_port *port = urb->context;
     struct cp210x_port_private *priv = usb_get_serial_port_data(port);
     u8 *data = (u8 *)urb->transfer_buffer;
-    int i, len, count = 0;
+    int i, count = 0;
 
     /* Detection of DCD Change */
     if (data[0] == CP210X_ESCAPE) {
@@ -1263,9 +1263,8 @@ static void cp210x_process_read_urb(struct urb *urb) {
         }
         wake_up_interruptible(&port->port.delta_msr_wait);
     }
-    len = 256;
     for (i = 6; i < urb->actual_length; i += 256) {
-        count += cp210x_process_packet(port, priv, &data[i], len);
+        count += cp210x_process_packet(port, priv, &data[i], 256);
     }
     if (count) {
         tty_flip_buffer_push(&port->port);
