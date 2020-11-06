@@ -1,3 +1,10 @@
+You almost certainly want either of the two following branches:
+- `4.19.154` (for a 4.19-based system)
+- `4.4.15` (I *believe* this was also tested successfully with 4.15.0-46.49
+  from Ubuntu 18.04 LTS)
+- `4.4.241` (builds under 4.4.241 and probably works; known *not* to work under
+  4.19)
+
 This driver adapts the existing CP210x driver for Linux 4.x to support PPS,
 such as provided by a USB GPS.  This has been tested with the Ubuntu 18.04
 LTS 4.15.0-46.49 kernel and a Jackson Labs &ldquo;Firefly&rdquo; Global
